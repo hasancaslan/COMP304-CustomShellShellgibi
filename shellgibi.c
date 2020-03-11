@@ -6,6 +6,9 @@
 #include <string.h>
 #include <stdbool.h>
 #include <errno.h>
+#include <unistd.h>
+#include <fcntl.h>
+
 const char *sysname = "shellgibi";
 
 enum return_codes
@@ -331,6 +334,7 @@ int main()
 int process_command(struct command_t *command)
 {
 	int r;
+	int output;
 	char path[500];
 	if (strcmp(command->name, "") == 0)
 		return SUCCESS;
@@ -360,6 +364,25 @@ int process_command(struct command_t *command)
 		// add a NULL argument to the end of args, and the name to the beginning
 		// as required by exec
 
+		// Part II - 1
+        for (int i = 0; i < 3; i++) {
+            if (command->redirects[i]) {
+				if (i == 0) {
+                    /// TODO: READING
+                    
+                } else if (i == 1) {
+					output = open(command->redirects[i], O_WRONLY | O_TRUNC | O_CREAT,
+                                      S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
+                    
+                } else {
+					output = open(command->redirects[i], O_WRONLY | O_APPEND | O_CREAT,
+                                      S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
+                    
+                }
+                dup2(output, 1);
+            }
+        }
+
 		// increase args size by 2
 		command->args = (char **)realloc(
 			command->args, sizeof(char *) * (command->arg_count += 2));
@@ -374,11 +397,16 @@ int process_command(struct command_t *command)
 		command->args[command->arg_count - 1] = NULL;
 
 		//execvp(command->name, command->args); // exec+args+path
+
+		/// TODO: do your own exec with path resolving using execv()
 		strcpy(path, "/usr/bin/");
 		strcat(path, command->name);
 		execv(path, command->args);
+
+		if (output) {
+            close(output);
+        }
 		exit(0);
-		/// TODO: do your own exec with path resolving using execv()
 	}
 	else
 	{
