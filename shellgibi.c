@@ -365,23 +365,27 @@ int process_command(struct command_t *command)
 		// as required by exec
 
 		// Part II - 1
-        for (int i = 0; i < 3; i++) {
-            if (command->redirects[i]) {
-				if (i == 0) {
-                    /// TODO: READING
-                    
-                } else if (i == 1) {
+		for (int i = 0; i < 3; i++)
+		{
+			if (command->redirects[i])
+			{
+				if (i == 0)
+				{
+					/// TODO: READING
+				}
+				else if (i == 1)
+				{
 					output = open(command->redirects[i], O_WRONLY | O_TRUNC | O_CREAT,
-                                      S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
-                    
-                } else {
+								  S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
+				}
+				else
+				{
 					output = open(command->redirects[i], O_WRONLY | O_APPEND | O_CREAT,
-                                      S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
-                    
-                }
-                dup2(output, 1);
-            }
-        }
+								  S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
+				}
+				dup2(output, 1);
+			}
+		}
 
 		// increase args size by 2
 		command->args = (char **)realloc(
@@ -403,9 +407,10 @@ int process_command(struct command_t *command)
 		strcat(path, command->name);
 		execv(path, command->args);
 
-		if (output) {
-            close(output);
-        }
+		if (output)
+		{
+			close(output);
+		}
 		exit(0);
 	}
 	else
