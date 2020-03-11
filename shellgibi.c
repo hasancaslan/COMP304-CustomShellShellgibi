@@ -370,19 +370,17 @@ int process_command(struct command_t *command)
 			if (command->redirects[i])
 			{
 				if (i == 0)
-				{
 					/// TODO: READING
-				}
+					break;
+					
 				else if (i == 1)
-				{
 					output = open(command->redirects[i], O_WRONLY | O_TRUNC | O_CREAT,
 								  S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
-				}
+
 				else
-				{
 					output = open(command->redirects[i], O_WRONLY | O_APPEND | O_CREAT,
 								  S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
-				}
+
 				dup2(output, 1);
 			}
 		}
