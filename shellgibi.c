@@ -317,8 +317,12 @@ int main() {
 
 int process_command(struct command_t *command) {
     int r;
+	int tmp_in = dup(0);
+	int tmp_out = dup(1);
     int output;
+	int input;
     char path[500];
+
     if (strcmp(command->name, "") == 0)
         return SUCCESS;
 
@@ -345,24 +349,39 @@ int process_command(struct command_t *command) {
         // add a NULL argument to the end of args, and the name to the beginning
         // as required by exec
 
-        // Part II - 1
-        for (int i = 0; i < 3; i++) {
-            if (command->redirects[i]) {
-                if (i == 0)
-                    /// TODO: READING
-                    break;
+        // Part II
+		
+		
 
-                else if (i == 1)
-                    output = open(command->redirects[i], O_WRONLY | O_TRUNC | O_CREAT,
-                                  S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
+        if (command->redirects[0])
+            input = open(command->redirects[0], O_RDONLY);
+		else
+			input = tmp_in;
+		
+			
+		dup2(input, 0);
+		close(input);
 
-                else
-                    output = open(command->redirects[i], O_WRONLY | O_APPEND | O_CREAT,
-                                  S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
+		if(command->next) {
+			int fd[2];
+			pipe(fd);
+			output = fd[1];
+			input = fd[0];
+		} else {
+            if (command->redirects[1])
+                output = open(command->redirects[1], O_WRONLY | O_TRUNC | O_CREAT,
+                                S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
 
-                dup2(output, 1);
-            }
-        }
+            else if (command->redirects[2])
+                output = open(command->redirects[2], O_WRONLY | O_APPEND | O_CREAT,
+                                S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
+			
+			else
+				output = tmp_out;
+		}
+
+		dup2(output, 1);
+		close(output);
 
         // increase args size by 2
         command->args = (char **) realloc(
@@ -384,8 +403,10 @@ int process_command(struct command_t *command) {
         strcat(path, command->name);
         execv(path, command->args);
 
-        if (output)
-            close(output);
+		dup2(tmp_in, 0);
+		dup2(tmp_out, 1);
+		close(tmp_in);
+		close(tmp_out);
 
         exit(0);
     } else {
@@ -395,7 +416,6 @@ int process_command(struct command_t *command) {
         return SUCCESS;
     }
 
-    // TODO: your implementation here
 
     printf("-%s: %s: command not found\n", sysname, command->name);
     return UNKNOWN;
