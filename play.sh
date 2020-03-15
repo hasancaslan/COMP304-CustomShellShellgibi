@@ -1,0 +1,1 @@
+play /home/user/Desktop/comp304/Assignment2/YigidimAslanim.mp3 trim 0.0 60
