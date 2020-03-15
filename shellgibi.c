@@ -298,9 +298,11 @@ int main() {
     while (1) {
         struct command_t *command = malloc(sizeof(struct command_t));
         memset(command, 0, sizeof(struct command_t)); // set all bytes to 0
-
+        printf("Command: %s", command->name);
+        printf("\nPID: %d\n", getpid());
         int code;
         code = prompt(command);
+        printf("Command: %s", command->name);
         if (code == EXIT)
             break;
 
@@ -317,11 +319,6 @@ int main() {
 
 int process_command(struct command_t *command) {
     int r;
-	int tmp_in = dup(0);
-	int tmp_out = dup(1);
-    int output;
-	int input;
-    char path[500];
 
     if (strcmp(command->name, "") == 0)
         return SUCCESS;
@@ -338,85 +335,116 @@ int process_command(struct command_t *command) {
         }
     }
 
-    pid_t pid = fork();
-    if (pid == 0) // child
-    {
-        /// This shows how to do exec with environ (but is not available on MacOs)
-        // extern char** environ; // environment variables
-        // execvpe(command->name, command->args, environ); // exec+args+path+environ
+    int num_pipes = 1;
+    struct command_t *tmp_cmd = command;
 
-        /// This shows how to do exec with auto-path resolve
-        // add a NULL argument to the end of args, and the name to the beginning
-        // as required by exec
+    while (tmp_cmd->next) {
+        num_pipes++;
+        tmp_cmd = tmp_cmd->next;
+    }
 
-        // Part II
-		
-		
+    int tmp_in = dup(0);
+    int tmp_out = dup(1);
 
-        if (command->redirects[0])
-            input = open(command->redirects[0], O_RDONLY);
-		else
-			input = tmp_in;
-		
-			
-		dup2(input, 0);
-		close(input);
+    int input = dup(0);
+    if (command->redirects[0])
+        input = open(command->redirects[0], O_RDONLY);
+    else
+        input = tmp_in;
 
-		if(command->next) {
-			int fd[2];
-			pipe(fd);
-			output = fd[1];
-			input = fd[0];
-		} else {
+    int output = dup(1);
+    int status;
+    pid_t pid;
+
+    for (int i = 0; i < num_pipes; i++) {
+        dup2(input, 0);
+        close(input);
+
+        if (i == num_pipes - 1) {
             if (command->redirects[1])
                 output = open(command->redirects[1], O_WRONLY | O_TRUNC | O_CREAT,
-                                S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
+                              S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
 
             else if (command->redirects[2])
                 output = open(command->redirects[2], O_WRONLY | O_APPEND | O_CREAT,
-                                S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
-			
-			else
-				output = tmp_out;
-		}
+                              S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
 
-		dup2(output, 1);
-		close(output);
+            else
+                output = tmp_out;
 
-        // increase args size by 2
-        command->args = (char **) realloc(
-                command->args, sizeof(char *) * (command->arg_count += 2));
 
-        // shift everything forward by 1
-        for (int i = command->arg_count - 2; i > 0; --i)
-            command->args[i] = command->args[i - 1];
+        } else {
+            int fd[2];
+            pipe(fd);
+            output = fd[1];
+            input = fd[0];
+        }
 
-        // set args[0] as a copy of name
-        command->args[0] = strdup(command->name);
-        // set args[arg_count-1] (last) to NULL
-        command->args[command->arg_count - 1] = NULL;
+        dup2(output, 1);
+        close(output);
 
-        //execvp(command->name, command->args); // exec+args+path
 
-        /// TODO: do your own exec with path resolving using execv()
-        strcpy(path, "/usr/bin/");
-        strcat(path, command->name);
-        execv(path, command->args);
+        pid = fork();
+        if (pid == 0) // child
+        {
+            char path[500];
+            /// This shows how to do exec with environ (but is not available on MacOs)
+            // extern char** environ; // environment variables
+            // execvpe(command->name, command->args, environ); // exec+args+path+environ
 
-		dup2(tmp_in, 0);
-		dup2(tmp_out, 1);
-		close(tmp_in);
-		close(tmp_out);
+            /// This shows how to do exec with auto-path resolve
+            // add a NULL argument to the end of args, and the name to the beginning
+            // as required by exec
 
-        exit(0);
-    } else {
-        if (!command->background)
-            wait(0); // wait for child process to finish
+            // increase args size by 2
+            command->args = (char **) realloc(
+                    command->args, sizeof(char *) * (command->arg_count += 2));
 
-        return SUCCESS;
+            // shift everything forward by 1
+            for (int i = command->arg_count - 2; i > 0; --i)
+                command->args[i] = command->args[i - 1];
+
+            // set args[0] as a copy of name
+            command->args[0] = strdup(command->name);
+            // set args[arg_count-1] (last) to NULL
+            command->args[command->arg_count - 1] = NULL;
+
+            printf("\nCHILD PID: %d\n", getpid());
+            execvp(command->name, command->args); // exec+args+path
+            /// TODO: do your own exec with path resolving using execv()
+
+            /*
+            strcpy(path, "/usr/bin/");
+            strcat(path, command->name);
+            execv(path, command->args);
+            */
+
+            exit(0);
+        } else {
+            if (command->next) {
+                printf("\nPARENT IN NEXT PID: %d\n", getpid());
+                command = command->next;
+                continue;
+            }
+
+            do {
+                printf("\nPARENT IN WAIT PID: %d\n", getpid());
+                waitpid(pid, &status, WUNTRACED);
+            } while (!WIFEXITED(status) && !WIFSIGNALED(status)); // wait for child process to finish
+
+            return SUCCESS;
+        }
     }
 
+    printf("\n PARENT PID: %d\n", getpid());
+    dup2(input, 0);
+    dup2(output, 1);
+    close(input);
+    close(output);
 
-    printf("-%s: %s: command not found\n", sysname, command->name);
-    return UNKNOWN;
+
+    return SUCCESS;
+
+    // printf("-%s: %s: command not found\n", sysname, command->name);
+    // return UNKNOWN;
 }
