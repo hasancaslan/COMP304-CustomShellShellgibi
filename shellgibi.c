@@ -560,13 +560,11 @@ char *shellgibi_autocomplete_generator(const char *str, int start) {
                     }
 
                     FILE *music_file;
-                    music_file = fopen("play.sh",
-                                       "w"); //We keep the command for playing the music inside of this executable file
+                    music_file = fopen("play.sh", "w");
                     fclose(music_file);
 
                     FILE *crontab_file;
-                    crontab_file = fopen("crontab_file",
-                                         "w"); //We pass the crontabFile to crontab function with execv command below
+                    crontab_file = fopen("crontab_file", "w");
                     fclose(crontab_file);
                     char *arguments[] = {"crontab", "crontab_file", NULL};
                     execv("/usr/bin/crontab", arguments);
