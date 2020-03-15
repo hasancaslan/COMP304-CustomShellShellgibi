@@ -3,12 +3,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <termios.h> //termios, TCSANOW, ECHO, ICANON
-#include <string.h>
 #include <stdbool.h>
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
+#include <signal.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <pwd.h>
+#include <ifaddrs.h>
+#include <readline/readline.h>
+#include <readline/history.h>
 
+char **all_commands;
 const char *sysname = "shellgibi";
 
 enum return_codes {
@@ -285,7 +296,7 @@ int prompt(struct command_t *command) {
 
     parse_command(buf, command);
 
-    // print_command(command); // DEBUG: uncomment for debugging
+     print_command(command); // DEBUG: uncomment for debugging
 
     // restore the old settings
     tcsetattr(STDIN_FILENO, TCSANOW, &backup_termios);
@@ -294,15 +305,27 @@ int prompt(struct command_t *command) {
 
 int process_command(struct command_t *command);
 
+char **shellgibi_autocomplete(const char *text, int start, int end);
+
+int load_all_commands();
+
 int main() {
+    rl_attempted_completion_function = shellgibi_autocomplete;
+    rl_completer_quote_characters = "'\"";
+    rl_completer_word_break_characters = " ";
+    rl_bind_key('\t', rl_menu_complete);
+
     while (1) {
         struct command_t *command = malloc(sizeof(struct command_t));
         memset(command, 0, sizeof(struct command_t)); // set all bytes to 0
-        printf("Command: %s", command->name);
-        printf("\nPID: %d\n", getpid());
+
         int code;
+
+        code = load_all_commands();
+        if (code == UNKNOWN)
+            break;
+
         code = prompt(command);
-        printf("Command: %s", command->name);
         if (code == EXIT)
             break;
 
@@ -316,6 +339,98 @@ int main() {
     printf("\n");
     return 0;
 }
+
+char *shellgibi_autocomplete_generator(const char *str, int start) {
+    static int index, length;
+    char *cmd_name;
+
+    if (!start) {
+        index = 0;
+        length = strlen(str);
+    }
+
+    while ((cmd_name = all_commands[index++])) {
+        if (rl_completion_quote_character) {
+            cmd_name = strdup(cmd_name);
+
+        if (strncmp(cmd_name, str, length) == 0) {
+            return cmd_name;
+        } else {
+            free(cmd_name);
+        }
+    }
+
+    return NULL;
+}
+
+char **shellgibi_autocomplete(const char *text, int start, int end){
+    rl_attempted_completion_over = 1;
+    return rl_completion_matches(str, auto_gen);
+}
+
+int load_all_commands() {
+    char *path_var = strdup(getenv("PATH"));
+    char **paths = malloc(32 * sizeof(char *));
+    all_commands = malloc(65536 * sizeof(char *));
+
+    //Getting all paths
+    int i = 0;
+    char *token, *tmp;
+
+    token = strtok_r(path_var, ":;", &tmp);
+    while (1) {
+        token = strtok_r(NULL, ":;", &tmp);
+        if (token == NULL)break;
+        paths[i] = (char *) malloc(1024 * sizeof(char));
+        strcpy(paths[i], token);
+        i++;
+    }
+    i--;
+
+    DIR *directory;
+    struct dirent *entry;
+    char *file_path = malloc(2048 * sizeof(char));
+    int counter = 0;
+    for (i; i > -1; i--) {
+        if ((directory = opendir(paths[i])) != NULL) {
+            while ((entry = readdir(directory)) != NULL) {
+                strcpy(file_path, paths[i]);
+                strcat(file_path, "/");
+                strcat(file_path, entry->d_name);
+                if (access(file_path, X_OK) != 0)
+                    continue;
+                all_commands[counter] = malloc(1024 * sizeof(char));
+                strcpy(all_commands[counter], entry->d_name);
+                counter++;
+            }
+            closedir(directory);
+        } else {
+            return UNKNOWN;
+        }
+    }
+
+    //Full file completion for current working directory
+    char cwd[1024];
+    getcwd(cwd, sizeof(cwd));
+    if ((directory = opendir(cwd)) != NULL) {
+        while ((entry = readdir(directory)) != NULL) {
+            all_commands[counter] = malloc(1024 * sizeof(char));
+            strcpy(all_commands[counter], entry->d_name);
+            counter++;
+        }
+        closedir(directory);
+    } else {
+        return UNKNOWN;
+    }
+
+    return SUCCESS;
+}
+
+int weather_forecast(char *out_file){
+    char *const args[] = {"wttrin", "-l", "Istanbul", "-p", "-o", out_file};
+    return execvp(args[0], args);
+}
+
 
 int process_command(struct command_t *command) {
     int r;
@@ -335,8 +450,11 @@ int process_command(struct command_t *command) {
         }
     }
 
+
     int num_pipes = 1;
-    struct command_t *tmp_cmd = command;
+
+    struct command_t *tmp_cmd = malloc(sizeof(struct command_t));
+    memcpy(tmp_cmd, command, sizeof(struct command_t));
 
     while (tmp_cmd->next) {
         num_pipes++;
@@ -357,6 +475,23 @@ int process_command(struct command_t *command) {
     pid_t pid;
 
     for (int i = 0; i < num_pipes; i++) {
+        int r;
+
+        if (strcmp(command->name, "") == 0)
+            return SUCCESS;
+
+        if (strcmp(command->name, "exit") == 0)
+            return EXIT;
+
+        if (strcmp(command->name, "cd") == 0) {
+            if (command->arg_count > 0) {
+                r = chdir(command->args[0]);
+                if (r == -1)
+                    printf("-%s: %s: %s\n", sysname, command->name, strerror(errno));
+                return SUCCESS;
+            }
+        }
+
         dup2(input, 0);
         close(input);
 
@@ -409,42 +544,91 @@ int process_command(struct command_t *command) {
             // set args[arg_count-1] (last) to NULL
             command->args[command->arg_count - 1] = NULL;
 
-            printf("\nCHILD PID: %d\n", getpid());
-            execvp(command->name, command->args); // exec+args+path
+            if (strcmp(command->name, "alarm") == 0) {
+                char cwd[1024];
+                getcwd(cwd, sizeof(cwd));
+                char *time = command->args[0];//This is the time in the form HH.MM
+                char *music_file_name = command->args[1]; //This is the name of the music file
+                char time_array[2][5]; //The array we builded for outting time elements
+                char *parsed_time;
+                int i = 0;
+                parsed_time = strtok(time, ".");
+                while (parsed_time != NULL) {
+                    strcpy(time_array[i], parsed_time);
+                    parsed_time = strtok(NULL, ".");
+                    i++;
+                }
+
+                FILE *music_file;
+                music_file = fopen("play.sh",
+                                   "w"); //We keep the command for playing the music inside of this executable file
+                fclose(music_file);
+
+                FILE *crontab_file;
+                crontab_file = fopen("crontab_file",
+                                     "w"); //We pass the crontabFile to crontab function with execv command below
+                fclose(crontab_file);
+                char *arguments[] = {"crontab", "crontab_file", NULL};
+                execv("/usr/bin/crontab", arguments);
+                return SUCCESS;
+            } else if (strcmp(command->name, "myjobs") == 0) {
+                system("ps -u");
+                return SUCCESS;
+            } else if (strcmp(command->name, "pause") == 0) {
+                char *cmd = "kill -STOP ";
+                strcat(cmd, *command->args);
+                system(cmd);
+                return SUCCESS;
+            } else if (strcmp(command->name, "mybg") == 0) {
+                char *cmd = "kill -CONT ";
+                strcat(cmd, *command->args);
+                system(cmd);
+                system("bg");
+                return SUCCESS;
+            } else if (strcmp(command->name, "myfg") == 0) {
+                char *cmd = "kill -CONT ";
+                strcat(cmd, *command->args);
+                system(cmd);
+                system("fg");
+                return SUCCESS;
+            } else if ((strcmp(command->name, "myfg") == 0)) {
+                return weather_forecast(command->args[0]);
+            }
+
+            //execvp(command->name, command->args); // exec+args+path
             /// TODO: do your own exec with path resolving using execv()
 
-            /*
+
             strcpy(path, "/usr/bin/");
             strcat(path, command->name);
             execv(path, command->args);
-            */
+
 
             exit(0);
         } else {
             if (command->next) {
-                printf("\nPARENT IN NEXT PID: %d\n", getpid());
                 command = command->next;
                 continue;
             }
 
             do {
-                printf("\nPARENT IN WAIT PID: %d\n", getpid());
                 waitpid(pid, &status, WUNTRACED);
             } while (!WIFEXITED(status) && !WIFSIGNALED(status)); // wait for child process to finish
 
+            dup2(input, 0);
+            dup2(output, 1);
+            close(input);
+            close(output);
             return SUCCESS;
         }
     }
 
-    printf("\n PARENT PID: %d\n", getpid());
     dup2(input, 0);
     dup2(output, 1);
     close(input);
     close(output);
 
-
-    return SUCCESS;
-
-    // printf("-%s: %s: command not found\n", sysname, command->name);
-    // return UNKNOWN;
+    printf("-%s: %s: command not found\n", sysname, command->name);
+    return UNKNOWN;
 }
+
