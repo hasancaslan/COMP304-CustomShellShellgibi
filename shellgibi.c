@@ -296,7 +296,7 @@ int prompt(struct command_t *command) {
 
     parse_command(buf, command);
 
-    print_command(command); // DEBUG: uncomment for debugging
+    //print_command(command); // DEBUG: uncomment for debugging
 
     // restore the old settings
     tcsetattr(STDIN_FILENO, TCSANOW, &backup_termios);
@@ -426,12 +426,6 @@ int load_all_commands() {
     return SUCCESS;
 }
 
-int weather_forecast(char *out_file) {
-    char *const args[] = {"wttrin", "-l", "Istanbul", "-p", "-o", out_file};
-    return execvp(args[0], args);
-}
-
-
 int process_command(struct command_t *command) {
     int r;
 
@@ -511,25 +505,12 @@ int process_command(struct command_t *command) {
             // add a NULL argument to the end of args, and the name to the beginning
             // as required by exec
 
-            // increase args size by 2
-            command->args = (char **) realloc(
-                    command->args, sizeof(char *) * (command->arg_count += 2));
-
-            // shift everything forward by 1
-            for (int i = command->arg_count - 2; i > 0; --i)
-                command->args[i] = command->args[i - 1];
-
-            // set args[0] as a copy of name
-            command->args[0] = strdup(command->name);
-            // set args[arg_count-1] (last) to NULL
-            command->args[command->arg_count - 1] = NULL;
-
-            if (strcmp(command->name, "alarm") == 0) {
+                if (strcmp(command->name, "alarm") == 0) {
                 char cwd[1024];
                 getcwd(cwd, sizeof(cwd));
-                char *time = command->args[0];//This is the time in the form HH.MM
-                char *music_file_name = command->args[1]; //This is the name of the music file
-                char time_array[2][5]; //The array we builded for outting time elements
+                char *time = command->args[0];
+                char *music_file_name = command->args[1];
+                char time_array[2][5];
                 char *parsed_time;
                 int i = 0;
                 parsed_time = strtok(time, ".");
@@ -539,38 +520,42 @@ int process_command(struct command_t *command) {
                     i++;
                 }
 
-                FILE *music_file;
-                music_file = fopen("play.sh", "w");
-                fclose(music_file);
-
                 FILE *crontab_file;
                 crontab_file = fopen("crontab_file", "w");
+                fprintf(crontab_file, "SHELL=/bin/bash\n");
+                fprintf(crontab_file, "PATH=%s\n", getenv("PATH"));
+                fprintf(crontab_file, "%s %s * * * aplay %s\n",time_array[0], time_array[1], music_file_name);
                 fclose(crontab_file);
+
                 char *arguments[] = {"crontab", "crontab_file", NULL};
-                execv("/usr/bin/crontab", arguments);
+                execvp("/usr/bin/crontab", arguments);
                 return SUCCESS;
             } else if (strcmp(command->name, "myjobs") == 0) {
                 system("ps -u");
                 return SUCCESS;
             } else if (strcmp(command->name, "pause") == 0) {
-                char *cmd = "kill -STOP ";
-                strcat(cmd, *command->args);
-                system(cmd);
+                long p_pid = strtol(command->args[0], NULL, 10);
+                kill(p_pid, SIGSTOP);
                 return SUCCESS;
             } else if (strcmp(command->name, "mybg") == 0) {
-                char *cmd = "kill -CONT ";
-                strcat(cmd, *command->args);
-                system(cmd);
+                long p_pid = strtol(command->args[0], NULL, 10);
+                kill(p_pid, SIGCONT);
                 system("bg");
                 return SUCCESS;
             } else if (strcmp(command->name, "myfg") == 0) {
-                char *cmd = "kill -CONT ";
-                strcat(cmd, *command->args);
-                system(cmd);
+                long p_pid = strtol(command->args[0], NULL, 10);
+                kill(p_pid, SIGCONT);
                 system("fg");
                 return SUCCESS;
             } else if (strcmp(command->name, "istforecast") == 0) {
-                weather_forecast(command->args[0]);
+                char o[500];
+                strcpy(o, "./");
+                strcat(o, command->args[0]);
+                strcat(o, ".png");
+                char *args[] = {"wget", "wttr.in/Istanbul.png", NULL};
+                char *args2[] = {"mv", "./Istanbul.png", o, NULL};
+                execvp(args[0], args);
+                execvp(args2[0], args2);
                 return SUCCESS;
             } else if (strcmp(command->name, "fib") == 0) {
                 int i, n, t1 = 0, t2 = 1, nextTerm;
@@ -585,13 +570,25 @@ int process_command(struct command_t *command) {
                 return SUCCESS;
             }
 
+            // increase args size by 2
+            command->args = (char **) realloc(
+                    command->args, sizeof(char *) * (command->arg_count += 2));
+
+            // shift everything forward by 1
+            for (int i = command->arg_count - 2; i > 0; --i)
+                command->args[i] = command->args[i - 1];
+
+            // set args[0] as a copy of name
+            command->args[0] = strdup(command->name);
+            // set args[arg_count-1] (last) to NULL
+            command->args[command->arg_count - 1] = NULL;
+
             //execvp(command->name, command->args); // exec+args+path
             /// TODO: do your own exec with path resolving using execv()
 
             strcpy(path, "/usr/bin/");
             strcat(path, command->name);
             execv(path, command->args);
-
 
             exit(0);
         } else {
